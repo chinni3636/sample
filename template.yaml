@@ -1,0 +1,176 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Description: "Lambda function for storing bearer token "
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks: [W3005]
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Deployment environment
+    Default: dev
+    AllowedValues: [dev, qa, prod]
+
+Conditions:
+  IsEnvironmentDev: !Equals [!Ref Environment, "dev"]
+  IsEnvironmentQa: !Equals [!Ref Environment, "qa"]
+  IsEnvironmentProd: !Equals [!Ref Environment, "prod"]
+
+Resources:
+  BearerTokenLambdaHealthCheckRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: "BearerTokenLambdaHealthCheckRole"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*"          
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/API*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:apimonitoring-*"
+              - Effect: Allow
+                Action:
+                  - SNS:Publish
+                Resource: !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:bearer-*"
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-API-monitoring-lambda-health-check-role'
+        - Key: Project
+          Value: DXP AWS
+        - Key: doosan:cloudformation:stack-name
+          Value: !Ref AWS::StackName
+        - Key: doosan:cloudformation:stack-id
+          Value: !Ref AWS::StackId
+        - Key: doosan:repo
+          Value: https://github.com/DoosanICA/db-dxp-infra
+  
+            
+  BeareTokenrequestslayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: BeareTokenrequestslayer
+      Description: requests layer
+      Content:
+        S3Bucket: my-apimonitoring-lambda-requests-layer 
+        S3Key: requests_layer.zip
+      CompatibleRuntimes:
+        - python3.11
+        - python3.12
+  
+  BearerTokenFunction:
+    Type: AWS::Serverless::Function
+    Condition: IsEnvironmentDev
+    Properties:
+      FunctionName: "BearerTokenFunction"
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Role:  !GetAtt BearerTokenLambdaHealthCheckRole.Arn
+      MemorySize: 128
+      Timeout: 600
+      CodeUri: functions/dev/
+      Layers:
+        - !Ref BeareTokenrequestslayer
+      Environment:
+       Variables:
+        DEV_INNER_IAM_BEARER_TOKEN_URL: https://doosan.oktapreview.com/oauth2/ausbgd9lwgmsRIdGY0h7/v1/token
+        DEV_OUTER_IAM_BEARER_TOKEN_URL: https://doosan.oktapreview.com/oauth2/ausrra4m2uZ6NegJU0h7/v1/token
+        DEV_IAM_URL: https://iam.api.dev.dice-tools.com/me/v1/apps
+        DEV_INNER_IAM_URL: https://inner-iam.api-internal.dev.dice-tools.com/v2/users
+        DEV_OUTER_IAM_URL: https://outer-iam.api.dev.dice-tools.com/v2/me/apps
+        DEV_NGPASSPORT_IAM_URL: https://adminenigma.api.dev.dice-tools.com/v2/user/notifications 
+  BearerTokenFunctionqa:
+    Type: AWS::Serverless::Function
+    Condition: IsEnvironmentQa
+    Properties:
+      FunctionName: "BearerTokenFunction"
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Role:  !GetAtt BearerTokenLambdaHealthCheckRole.Arn
+      MemorySize: 128
+      Timeout: 600
+      CodeUri: functions/qa/
+      Layers:
+        - !Ref BeareTokenrequestslayer
+      Environment:
+       Variables:
+        QA_INNER_IAM_BEARER_TOKEN_URL: https://doosan.oktapreview.com/oauth2/ausc2ng52wmC1WdPj0h7/v1/token
+        QA_OUTER_IAM_BEARER_TOKEN_URL: https://doosan.oktapreview.com/oauth2/ausc2ng52wmC1WdPj0h7/v1/token
+        QA_IAM_URL: https://iam.api.qa.dice-tools.com/me/v1/apps
+        QA_INNER_IAM_URL: https://inner-iam.api-internal.qa.dice-tools.com/v2/users
+        QA_OUTER_IAM_URL: https://outer-iam.api.qa.dice-tools.com/v2/me/apps
+        QA_NGPASSPORT_IAM_URL: https://adminenigma.api.qa.dice-tools.com/v2/user/notifications 
+    
+  BearerTokenFunctionprod:
+    Type: AWS::Serverless::Function
+    Condition: IsEnvironmentProd
+    Properties:
+      FunctionName: "BearerTokenFunction"
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Role:  !GetAtt BearerTokenLambdaHealthCheckRole.Arn
+      MemorySize: 128
+      Timeout: 600
+      CodeUri: functions/prod/
+      Layers:
+        - !Ref BeareTokenrequestslayer
+      Environment:
+       Variables:
+        PROD_INNER_IAM_BEARER_TOKEN_URL: https://doosan.okta.com/oauth2/aus8kshd9vR44ZJLg1t7/v1/token
+        PROD_OUTER_IAM_BEARER_TOKEN_URL: https://doosan.okta.com/oauth2/aus8kshd9vR44ZJLg1t7/v1/token
+        PROD_IAM_URL: https://iam.api.dibhids.net/me/v1/apps
+        PROD_INNER_IAM_URL: https://inner-iam.api.dibhids.net/v2/users
+        PROD_OUTER_IAM_URL: https://outer-iam.api.dibhids.net/v2/me/apps
+        PROD_NGPASSPORT_IAM_URL: https://adminenigma.api.dibhids.net/v2/user/notifications
+  
+  BearerTokenEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Description: Event Rule for starting APImonitoring function
+      Name: BearerTokenEventRule
+      ScheduleExpression: rate(30 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt BearerTokenFunction.Arn
+          Id: BearerTokenFunction
+          
+  InvokeBearerTokenEventRule:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt BearerTokenFunction.Arn
+      Action: 'lambda:invokeFunction'
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt BearerTokenEventRule.Arn
